@@ -1,0 +1,31 @@
+[package]
+name = "tcc-sys"
+version.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[build-dependencies]
+bindgen = "0.66.1"
+cargo-emit = "0.2.1"
+cc = { version = "1.0", features = ["parallel"] }
+cfg-if = "1.0.0"
+eyre.workspace = true
+static_assertions = "1.1.0"
+
+[lib]
+crate-type = ["lib", "staticlib"]
+
+[features]
+default = ["vendored"]
+vendored = []
+arch-i386 = []
+arch-arm32 = []
+arch-arm64 = []
+arch-c67 = []
+arch-x86_64 = []
+arch-rv64 = []
+link-pe = []
+link-mach-o = []

@@ -1,0 +1,4 @@
+[submodule "tcc-sys/tinycc"]
+	path = tcc-sys/tinycc
+	url = https://github.com/C-Chads/tinycc
+	shallow = true
