@@ -6,13 +6,39 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+authors = [
+    "Steve Fan <29133953+stevefan1999-personal@users.noreply.github.com>",
+    "Hao Sun <sunhao.th@gmail.com>"
+]
 
 [workspace.dependencies]
 eyre = "0.6.8"
 
 [package]
-name = "tcc-rs"
+name = "tcc"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 
 [dependencies]
+tcc-sys = { version = "0.1.0", path = "tcc-sys" }
+vc-ltl = "5.0.8"
+
+[profile.release]
+incremental = true
+lto = "thin"
+strip = "debuginfo"
+
+[profile.min-size-release]
+inherits = "release"
+codegen-units = 1
+lto = "fat"
+opt-level = "s"
+
+[profile.release-strip]
+inherits = "release"
+strip = "symbols"
+
+[profile.min-size-release-strip]
+inherits = "min-size-release"
+strip = "symbols"
