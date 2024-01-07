@@ -1,9 +1,10 @@
+#![deny(clippy::alloc_instead_of_core)]
+#![deny(clippy::std_instead_of_core)]
+
 use core::ffi::CStr;
-use std::{
-    ffi::VaList,
-    io::{Cursor, Read, Seek, SeekFrom},
-    slice,
-};
+use core::ffi::VaList;
+use std::io::{Cursor, Read, Seek, SeekFrom};
+use core::slice;
 
 use libc::{c_char, c_int, c_void, off_t, size_t, ssize_t, SEEK_CUR, SEEK_END, SEEK_SET};
 use once_cell::sync::Lazy;
@@ -84,13 +85,13 @@ impl VFS for MemoryVFS {
     }
 
     fn seek(&mut self, from: SeekFrom) -> Result<off_t, ()> {
-        Ok(match self {
+        match self {
             MemoryVFS::Static(cursor) => cursor.seek(from),
             MemoryVFS::Heap(cursor) => cursor.seek(from),
         }
         .map_err(|_| ())?
         .try_into()
-        .map_err(|_| ())?)
+        .map_err(|_| ())
     }
 
     fn close(&mut self) -> Result<c_int, ()> {
@@ -100,7 +101,7 @@ impl VFS for MemoryVFS {
 }
 
 static mut FILES: Lazy<Stash<Box<dyn VFS + 'static + Sync + Send>, SmallIndex>> =
-    Lazy::new(|| Stash::default());
+    Lazy::new(Stash::default);
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct SmallIndex(c_int);
@@ -171,8 +172,8 @@ pub unsafe extern "C" fn vfs_lseek(fd: c_int, offset: off_t, whence: c_int) -> o
     if let Some(vfs) = FILES.get_mut(SmallIndex(fd)) {
         vfs.seek(match whence {
             SEEK_SET => SeekFrom::Start(offset.try_into().unwrap()),
-            SEEK_END => SeekFrom::End(offset.try_into().unwrap()),
-            SEEK_CUR => SeekFrom::Current(offset.try_into().unwrap()),
+            SEEK_END => SeekFrom::End(offset.into()),
+            SEEK_CUR => SeekFrom::Current(offset.into()),
             _ => return -1,
         })
         .unwrap_or(-1)

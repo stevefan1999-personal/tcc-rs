@@ -1,4 +1,5 @@
 [submodule "tcc-sys/tinycc"]
 	path = tcc-sys/tinycc
-	url = https://github.com/C-Chads/tinycc
+	url = git://repo.or.cz/tinycc.git
+	branch = mob
 	shallow = true
