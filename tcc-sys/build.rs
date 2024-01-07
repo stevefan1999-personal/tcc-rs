@@ -156,6 +156,7 @@ fn build_static_library() -> Result<()> {
     }
 
     if cfg!(feature = "vfs") {
+        cc.define("CONFIG_VFS", None);
         cc.define("open", "vfs_open");
         cc.define("read", "vfs_read");
         cc.define("lseek", "vfs_lseek");
