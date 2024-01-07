@@ -1,3 +1,7 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+#![deny(clippy::alloc_instead_of_core)]
+#![deny(clippy::std_instead_of_core)]
+
 //! Rust binding for [tcc](https://repo.or.cz/w/tinycc.git)
 //!
 //! # Example
@@ -19,44 +23,120 @@
 //! assert!(ctx.compile_string(&p).is_ok());
 //! ```
 
-use std::{
-    ffi::{CStr, CString},
-    marker::PhantomData,
-    os::raw::{c_char, c_int, c_void},
-    path::Path,
+#[cfg(not(feature = "std"))] extern crate alloc;
+
+#[cfg(feature = "std")] extern crate std as alloc;
+
+use alloc::{boxed::Box, ffi::CString, rc::Rc, string::ToString, vec::Vec};
+use core::{
+    ffi::{c_char, c_int, c_void, CStr},
+    ops::Deref,
     ptr::null_mut,
-    sync::atomic::{AtomicBool, Ordering},
 };
+#[cfg(feature = "std")] use std::path::Path;
+#[cfg(feature = "std")] use std::sync::Mutex;
 
+#[cfg(not(feature = "std"))] use spin::Mutex;
 use tcc_sys::*;
+use typed_arena::Arena;
+#[cfg(not(feature = "std"))] use unix_path::Path;
 
-static AVAILABLE: AtomicBool = AtomicBool::new(true);
+static LOCK: Mutex<()> = Mutex::new(());
 
-/// An empty type prevents the use of TCC simultaneously.
-/// ```
-/// use tcc::Guard;
-/// let g1 = Guard::new();
-/// assert!(g1.is_ok());
-/// let g2 = Guard::new();
-/// assert!(g2.is_err());
-/// ```
-pub struct Guard([u8; 0]);
+pub struct ContextGuard<'err, T> {
+    #[allow(unused)]
+    inner: Rc<Scoped<'err>>,
+    data:  T,
+}
 
-impl Guard {
-    /// Creat a new guard, return Err if a instance already exists.
-    pub fn new() -> Result<Guard, &'static str> {
-        if AVAILABLE.swap(false, Ordering::SeqCst) {
-            Ok(Guard([]))
+impl<'err, T> Deref for ContextGuard<'err, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.data
+    }
+}
+
+pub struct Scoped<'err>(Arena<Context<'err>>);
+
+impl<'err> Default for Scoped<'err> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'err> Scoped<'err> {
+    pub fn new() -> Self {
+        Scoped(Arena::new())
+    }
+
+    pub fn spawn(&self) -> Result<&mut Context<'err>, ()> {
+        if let Ok(context) = Context::new() {
+            Ok(self.0.alloc(context))
         } else {
-            Err("Try to create TCC instance multiple time")
+            Err(())
         }
     }
 }
 
-impl Drop for Guard {
-    fn drop(&mut self) {
-        AVAILABLE.store(true, Ordering::SeqCst);
+#[cfg(feature = "std")]
+pub fn try_scoped<'err, F, T>(func: F) -> Result<ContextGuard<'err, T>, &'static str>
+where
+    F: FnOnce(Rc<Scoped>) -> T,
+{
+    match LOCK.try_lock() {
+        Ok(_) => {
+            let scoped = Rc::new(Scoped::new());
+            Ok(ContextGuard {
+                inner: scoped.clone(),
+                data:  func(scoped),
+            })
+        }
+        Err(_) => Err("lock failed"),
     }
+}
+
+#[cfg(not(feature = "std"))]
+pub fn try_scoped<'err, F, T>(func: F) -> Result<ContextGuard<'err, T>, &'static str>
+where
+    F: FnOnce(Rc<Scoped>) -> T,
+{
+    match LOCK.try_lock() {
+        Some(_) => {
+            let scoped = Rc::new(Scoped::new());
+            Ok(ContextGuard {
+                inner: scoped.clone(),
+                data:  func(scoped),
+            })
+        }
+        None => Err("lock failed"),
+    }
+}
+
+#[cfg(feature = "std")]
+pub fn scoped<'err, F, T>(func: F) -> Result<ContextGuard<'err, T>, &'static str>
+where
+    F: FnOnce(Rc<Scoped>) -> T,
+{
+    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let scoped = Rc::new(Scoped::new());
+    Ok(ContextGuard {
+        inner: scoped.clone(),
+        data:  func(scoped),
+    })
+}
+
+#[cfg(not(feature = "std"))]
+pub fn scoped<'err, F, T>(func: F) -> Result<ContextGuard<'err, T>, &'static str>
+where
+    F: FnOnce(Rc<Scoped>) -> T,
+{
+    let _lock = LOCK.lock();
+    let scoped = Rc::new(Scoped::new());
+    Ok(ContextGuard {
+        inner: scoped.clone(),
+        data:  func(scoped),
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -80,11 +160,9 @@ pub enum OutputType {
 }
 
 /// Compilation context.
-pub struct Context<'a, 'b> {
+pub struct Context<'err> {
     inner:    *mut TCCState,
-    _g:       &'a mut Guard,
-    err_func: Option<Box<Box<dyn 'b + FnMut(&CStr)>>>,
-    phantom:  PhantomData<TCCState>,
+    err_func: Option<Box<Box<dyn 'err + FnMut(&CStr)>>>,
 }
 
 /// Real call back of tcc.
@@ -93,28 +171,21 @@ extern "C" fn call_back(opaque: *mut c_void, msg: *const c_char) {
     unsafe { (*func)(CStr::from_ptr(msg)) }
 }
 
-impl<'a, 'b> Context<'a, 'b> {
+impl<'err> Context<'err> {
     /// Create a new context builder
     ///
     /// Context can not live together, mutable reference to guard makes compiler
     /// check this. Out of memory is only possible reason of failure.
-    pub fn new(g: &'a mut Guard) -> Result<Self, ()> {
+    pub fn new() -> Result<Self, ()> {
         let inner = unsafe { tcc_new() };
         if inner.is_null() {
             // OOM
             Err(())
         } else {
-            let mut ctx = Self {
+            Ok(Self {
                 inner,
-                _g: g,
                 err_func: None,
-                phantom: PhantomData,
-            };
-
-            ctx.add_sys_include_path("memory:///headers")
-                .add_library_path("memory:///libraries");
-
-            Ok(ctx)
+            })
         }
     }
 
@@ -138,7 +209,7 @@ impl<'a, 'b> Context<'a, 'b> {
     /// set error/warning display callback
     pub fn set_call_back<T>(&mut self, f: T) -> &mut Self
     where
-        T: FnMut(&CStr) + 'b,
+        T: FnMut(&CStr) + 'err,
     {
         let mut user_err_func: Box<Box<dyn FnMut(&CStr)>> = Box::new(Box::new(f));
         // user_err_func.as_mut().
@@ -230,7 +301,7 @@ impl<'a, 'b> Context<'a, 'b> {
     }
 
     /// output an executable, library or object file.
-    pub fn output_file<T: AsRef<Path>>(self, file_name: T) -> Result<(), ()> {
+    pub fn output_file<T: AsRef<Path>>(&mut self, file_name: T) -> Result<(), ()> {
         let file_name = to_cstr(file_name);
         let ret = unsafe { tcc_output_file(self.inner, file_name.as_ptr()) };
 
@@ -238,7 +309,7 @@ impl<'a, 'b> Context<'a, 'b> {
     }
 
     /// do all relocations (needed before get symbol)
-    pub fn relocate(mut self) -> Result<RelocatedCtx, ()> {
+    pub fn relocate<'a>(&'a mut self) -> Result<RelocatedCtx<'a, 'err>, ()> {
         // pass null ptr to get required length
         let len = unsafe { tcc_relocate(self.inner, null_mut()) };
         if len == -1 {
@@ -252,13 +323,10 @@ impl<'a, 'b> Context<'a, 'b> {
         unsafe {
             bin.set_len(len as usize);
         }
-        let tcc_handle = self.inner;
-        self.inner = null_mut();
 
         Ok(RelocatedCtx {
-            inner:   tcc_handle,
-            _bin:    bin,
-            phantom: PhantomData,
+            inner: self,
+            _bin:  bin,
         })
     }
 }
@@ -275,7 +343,7 @@ fn to_cstr<T: AsRef<Path>>(p: T) -> CString {
 }
 
 // preprocessor
-impl<'a, 'b> Drop for Context<'a, 'b> {
+impl<'err> Drop for Context<'err> {
     fn drop(&mut self) {
         if !self.inner.is_null() {
             unsafe { tcc_delete(self.inner) }
@@ -292,31 +360,24 @@ fn map_c_ret(code: c_int) -> Result<(), ()> {
 }
 
 /// Relocated compilation context
-pub struct RelocatedCtx {
-    inner:   *mut TCCState,
-    _bin:    Vec<u8>,
-    phantom: PhantomData<TCCState>,
+pub struct RelocatedCtx<'a, 'err> {
+    inner: &'a mut Context<'err>,
+    _bin:  Vec<u8>,
 }
 
-impl RelocatedCtx {
+impl<'a, 'err> RelocatedCtx<'a, 'err> {
     /// return symbol value or None if not found
     ///
     /// # Safety
     /// Returned addr can not outlive RelocatedCtx itself. It's caller's
     /// responsibility to take care of validity of addr.
     pub unsafe fn get_symbol(&mut self, sym: &CStr) -> Option<*mut c_void> {
-        let addr = tcc_get_symbol(self.inner, sym.as_ptr());
+        let addr = tcc_get_symbol(self.inner.inner, sym.as_ptr());
         if addr.is_null() {
             None
         } else {
             Some(addr)
         }
-    }
-}
-
-impl Drop for RelocatedCtx {
-    fn drop(&mut self) {
-        unsafe { tcc_delete(self.inner) }
     }
 }
 
