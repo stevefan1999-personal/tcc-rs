@@ -1,15 +1,13 @@
 use core::ffi::CStr;
 use std::{
-    collections::HashMap,
     ffi::VaList,
     io::{Cursor, Read, Seek, SeekFrom},
     slice,
 };
 
-use const_random::const_random;
 use libc::{c_char, c_int, c_void, off_t, size_t, ssize_t, SEEK_CUR, SEEK_END, SEEK_SET};
 use once_cell::sync::Lazy;
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use stash::Stash;
 
 extern "C" {
     fn open(path: *const c_char, oflag: c_int, ap: VaList) -> c_int;
@@ -101,23 +99,27 @@ impl VFS for MemoryVFS {
     }
 }
 
-static mut FILES: Lazy<HashMap<c_int, Box<dyn VFS + 'static + Sync + Send>>> =
-    Lazy::new(|| HashMap::new());
+static mut FILES: Lazy<Stash<Box<dyn VFS + 'static + Sync + Send>, SmallIndex>> =
+    Lazy::new(|| Stash::default());
 
-static mut RNG: Lazy<SmallRng> = Lazy::new(|| SmallRng::seed_from_u64(const_random!(u64)));
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct SmallIndex(c_int);
+
+impl stash::Index for SmallIndex {
+    fn from_usize(idx: usize) -> Self {
+        if idx > c_int::MAX as usize {
+            panic!("index type overflowing!");
+        }
+        SmallIndex(idx as c_int)
+    }
+
+    fn into_usize(self) -> usize {
+        self.0 as usize
+    }
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: ...) -> c_int {
-    fn insert_vfs(vfs: Box<impl VFS + Send + Sync + Clone + 'static>) -> c_int {
-        loop {
-            let vfs = vfs.clone();
-            let key: c_int = unsafe { RNG.gen_range(0..c_int::MAX) };
-            if let Ok(_) = unsafe { FILES.try_insert(key, vfs) } {
-                return key;
-            }
-        }
-    }
-
     #[cfg(any(feature = "embed-headers", feature = "embed-libraries"))]
     if let Ok(path) = CStr::from_ptr(path).to_str() {
         #[cfg(feature = "embed-headers")]
@@ -128,7 +130,7 @@ pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: .
                 let path = path.strip_prefix(prefix).unwrap();
 
                 if let Some(file) = crate::assets::headers::ASSETS.get_str(path) {
-                    return insert_vfs(Box::new(MemoryVFS::from_static(file)));
+                    return FILES.put(Box::new(MemoryVFS::from_static(file))).0;
                 }
             }
         }
@@ -140,7 +142,7 @@ pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: .
             if path.starts_with(prefix) {
                 let path = path.strip_prefix(prefix).unwrap();
                 if let Some(file) = crate::assets::libraries::ASSETS.get_str(path) {
-                    return insert_vfs(Box::new(MemoryVFS::from_static(file)));
+                    return FILES.put(Box::new(MemoryVFS::from_static(file))).0;
                 }
             }
         }
@@ -148,7 +150,7 @@ pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: .
 
     let fd = open(path, oflag, args.as_va_list());
     if fd >= 0 {
-        insert_vfs(Box::new(PosixVFS::new(fd)))
+        FILES.put(Box::new(PosixVFS::new(fd))).0
     } else {
         fd
     }
@@ -157,7 +159,7 @@ pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: .
 #[no_mangle]
 pub unsafe extern "C" fn vfs_read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t {
     let buf = slice::from_raw_parts_mut(buf.cast::<u8>(), count);
-    if let Some(vfs) = FILES.get_mut(&fd) {
+    if let Some(vfs) = FILES.get_mut(SmallIndex(fd)) {
         vfs.read(buf).unwrap_or(-1)
     } else {
         -1
@@ -166,7 +168,7 @@ pub unsafe extern "C" fn vfs_read(fd: c_int, buf: *mut c_void, count: size_t) ->
 
 #[no_mangle]
 pub unsafe extern "C" fn vfs_lseek(fd: c_int, offset: off_t, whence: c_int) -> off_t {
-    if let Some(vfs) = FILES.get_mut(&fd) {
+    if let Some(vfs) = FILES.get_mut(SmallIndex(fd)) {
         vfs.seek(match whence {
             SEEK_SET => SeekFrom::Start(offset.try_into().unwrap()),
             SEEK_END => SeekFrom::End(offset.try_into().unwrap()),
@@ -181,9 +183,9 @@ pub unsafe extern "C" fn vfs_lseek(fd: c_int, offset: off_t, whence: c_int) -> o
 
 #[no_mangle]
 pub unsafe extern "C" fn vfs_close(fd: c_int) -> c_int {
-    if let Some(vfs) = FILES.get_mut(&fd) {
+    if let Some(vfs) = FILES.get_mut(SmallIndex(fd)) {
         let ret = vfs.close().unwrap_or(-1);
-        FILES.remove(&fd);
+        FILES.take(SmallIndex(fd));
         ret
     } else {
         -1
