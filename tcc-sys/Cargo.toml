@@ -15,7 +15,7 @@ qp-trie = "0.8.1"
 derive_more = "0.99.17"
 
 [build-dependencies]
-bindgen = "0.66.1"
+bindgen = "0.69.1"
 cargo-emit = "0.2.1"
 cc = "1.0"
 cfg-if = "1.0.0"
