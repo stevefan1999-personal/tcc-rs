@@ -21,8 +21,15 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
+spin = "0.9.8"
 tcc-sys = { version = "0.1.0", path = "tcc-sys" }
+typed-arena = { version = "2.0.2", default-features = false }
+unix_path = { version = "1.0.1", default-features = false, features = ["alloc"] }
 vc-ltl = "5.0.8"
+
+[features]
+default = ["std"]
+std = ["spin/std", "typed-arena/std"]
 
 [profile.release]
 incremental = true
@@ -42,3 +49,6 @@ strip = "symbols"
 [profile.min-size-release-strip]
 inherits = "min-size-release"
 strip = "symbols"
+
+[dev-dependencies]
+anyhow = "1.0.79"

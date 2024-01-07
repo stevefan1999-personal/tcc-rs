@@ -16,14 +16,14 @@ void greet() {
 
 fn main() {
     let c_program = CString::new(GREET.as_bytes()).unwrap();
-    tcc::scoped(|scope| {
+    let ctxs = tcc::scoped(|scope| {
         let err_warn: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let ctx = scope.spawn().unwrap();
-        ctx.add_sys_include_path("/vfs/headers/base")
+        ctx.add_sys_include_path("/usr/include/x86_64-linux-gnu")
+            .add_library_path("/usr/lib/x86_64-linux-gnu")
+            .add_sys_include_path("/vfs/headers/base")
             .add_sys_include_path("/vfs/headers/win32")
-            .add_library_path("/vfs/libraries")
-            .add_sys_include_path("/usr/include/x86_64-linux-gnu")
-            .add_library_path("/usr/lib/x86_64-linux-gnu");
+            .add_library_path("/vfs/libraries");
 
         let compile_ret = ctx
             .set_output_type(OutputType::Memory)
@@ -50,6 +50,9 @@ fn main() {
             Ok(greet)
         }
     })
-    .unwrap()
     .unwrap();
+    let func = ctxs.get();
+    println!("before func");
+    func.unwrap()();
+    println!("after func");
 }

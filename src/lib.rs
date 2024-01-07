@@ -30,7 +30,7 @@
 use alloc::{boxed::Box, ffi::CString, rc::Rc, string::ToString, vec::Vec};
 use core::{
     ffi::{c_char, c_int, c_void, CStr},
-    ops::Deref,
+    mem::ManuallyDrop,
     ptr::null_mut,
 };
 #[cfg(feature = "std")] use std::path::Path;
@@ -45,14 +45,21 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 pub struct ContextGuard<'err, T> {
     #[allow(unused)]
-    inner: Rc<Scoped<'err>>,
-    data:  T,
+    inner: ManuallyDrop<Rc<Scoped<'err>>>,
+    data:  ManuallyDrop<T>,
 }
 
-impl<'err, T> Deref for ContextGuard<'err, T> {
-    type Target = T;
+impl<'err, T> Drop for ContextGuard<'err, T> {
+    fn drop(&mut self) {
+        unsafe {
+            ManuallyDrop::drop(&mut self.data);
+            ManuallyDrop::drop(&mut self.inner);
+        }
+    }
+}
 
-    fn deref(&self) -> &T {
+impl<'err, T> ContextGuard<'err, T> {
+    pub fn get(&self) -> &T {
         &self.data
     }
 }
@@ -88,8 +95,8 @@ where
         Ok(_) => {
             let scoped = Rc::new(Scoped::new());
             Ok(ContextGuard {
-                inner: scoped.clone(),
-                data:  func(scoped),
+                inner: ManuallyDrop::new(scoped.clone()),
+                data:  ManuallyDrop::new(func(scoped)),
             })
         }
         Err(_) => Err("lock failed"),
@@ -105,8 +112,8 @@ where
         Some(_) => {
             let scoped = Rc::new(Scoped::new());
             Ok(ContextGuard {
-                inner: scoped.clone(),
-                data:  func(scoped),
+                inner: ManuallyDrop::new(scoped.clone()),
+                data:  ManuallyDrop::new(func(scoped)),
             })
         }
         None => Err("lock failed"),
@@ -121,8 +128,8 @@ where
     let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let scoped = Rc::new(Scoped::new());
     Ok(ContextGuard {
-        inner: scoped.clone(),
-        data:  func(scoped),
+        inner: ManuallyDrop::new(scoped.clone()),
+        data:  ManuallyDrop::new(func(scoped)),
     })
 }
 
@@ -134,8 +141,8 @@ where
     let _lock = LOCK.lock();
     let scoped = Rc::new(Scoped::new());
     Ok(ContextGuard {
-        inner: scoped.clone(),
-        data:  func(scoped),
+        inner: ManuallyDrop::new(scoped.clone()),
+        data:  ManuallyDrop::new(func(scoped)),
     })
 }
 
