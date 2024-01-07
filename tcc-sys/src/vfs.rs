@@ -122,7 +122,7 @@ pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: .
     if let Ok(path) = CStr::from_ptr(path).to_str() {
         #[cfg(feature = "embed-headers")]
         {
-            let prefix = "memory:///headers/";
+            let prefix = "/vfs/headers/";
 
             if path.starts_with(prefix) {
                 let path = path.strip_prefix(prefix).unwrap();
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: .
 
         #[cfg(feature = "embed-libraries")]
         {
-            let prefix = "memory:///libraries/";
+            let prefix = "/vfs/libraries/";
 
             if path.starts_with(prefix) {
                 let path = path.strip_prefix(prefix).unwrap();

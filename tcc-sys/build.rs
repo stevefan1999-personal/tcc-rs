@@ -185,17 +185,19 @@ fn generate_include_dir() -> Result<()> {
         .content_only(true);
 
     let include_dir = out_dir.join("include");
+    let _ = fs::remove_dir_all(&include_dir);
+
     fs_extra::dir::copy(
         &manifest_dir.join("tinycc").join("include"),
-        &include_dir,
+        &include_dir.join("base"),
         &dir_copy_opt,
     )
     .map_err(|e| eyre!(e))?;
 
-    if cfg!(target_os = "windows") {
+    if cfg!(feature = "embed-headers-win32") || cfg!(target_os = "windows") {
         fs_extra::dir::copy(
             &manifest_dir.join("tinycc").join("win32").join("include"),
-            &include_dir,
+            &include_dir.join("win32"),
             &dir_copy_opt,
         )
         .map_err(|e| eyre!(e))?;
