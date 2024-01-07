@@ -1,10 +1,11 @@
 #![deny(clippy::alloc_instead_of_core)]
 #![deny(clippy::std_instead_of_core)]
 
-use core::ffi::CStr;
-use core::ffi::VaList;
+use core::{
+    ffi::{CStr, VaList},
+    slice,
+};
 use std::io::{Cursor, Read, Seek, SeekFrom};
-use core::slice;
 
 use libc::{c_char, c_int, c_void, off_t, size_t, ssize_t, SEEK_CUR, SEEK_END, SEEK_SET};
 use once_cell::sync::Lazy;
