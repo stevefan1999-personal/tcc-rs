@@ -16,12 +16,16 @@ extern "C" {
     fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
     fn lseek(fd: c_int, offset: off_t, whence: c_int) -> off_t;
     fn close(fd: c_int) -> c_int;
+    fn fdopen(fd: c_int, mode: *const c_char) -> *mut c_void;
 }
 
 pub trait VFS {
     fn read(&mut self, buf: &mut [u8]) -> Result<ssize_t, ()>;
     fn seek(&mut self, from: SeekFrom) -> Result<off_t, ()>;
     fn close(&mut self) -> Result<c_int, ()>;
+    fn fdopen(&mut self, _mode: *const c_char) -> Result<*mut c_void, ()> {
+        Err(())
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -191,5 +195,18 @@ pub unsafe extern "C" fn vfs_close(fd: c_int) -> c_int {
         ret
     } else {
         -1
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn vfs_fdopen(fd: c_int, mode: *const c_char) -> *mut c_void {
+    if let Some(vfs) = FILES.get_mut(SmallIndex(fd)) {
+        if let Ok(f) = vfs.fdopen(mode) {
+            f
+        } else {
+            null_mut()
+        }
+    } else {
+        null_mut()
     }
 }
