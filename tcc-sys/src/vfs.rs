@@ -1,10 +1,7 @@
 #![deny(clippy::alloc_instead_of_core)]
 #![deny(clippy::std_instead_of_core)]
 
-use core::{
-    ffi::{CStr, VaList},
-    slice,
-};
+use core::{ffi::CStr, ptr::null_mut, slice};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use libc::{c_char, c_int, c_void, off_t, size_t, ssize_t, SEEK_CUR, SEEK_END, SEEK_SET};
@@ -12,7 +9,7 @@ use once_cell::sync::Lazy;
 use stash::Stash;
 
 extern "C" {
-    fn open(path: *const c_char, oflag: c_int, ap: VaList) -> c_int;
+    fn open(path: *const c_char, oflag: c_int, args: ...) -> c_int;
     fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
     fn lseek(fd: c_int, offset: off_t, whence: c_int) -> off_t;
     fn close(fd: c_int) -> c_int;
@@ -56,6 +53,10 @@ impl VFS for PosixVFS {
 
     fn close(&mut self) -> Result<c_int, ()> {
         unsafe { Ok(close(self.fd)) }
+    }
+
+    fn fdopen(&mut self, mode: *const c_char) -> Result<*mut c_void, ()> {
+        unsafe { Ok(fdopen(self.fd, mode)) }
     }
 }
 
@@ -125,7 +126,7 @@ impl stash::Index for SmallIndex {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: ...) -> c_int {
+pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, args: ...) -> c_int {
     #[cfg(any(feature = "embed-headers", feature = "embed-libraries"))]
     if let Ok(path) = CStr::from_ptr(path).to_str() {
         #[cfg(feature = "embed-headers")]
@@ -154,7 +155,7 @@ pub unsafe extern "C" fn vfs_open(path: *const c_char, oflag: c_int, mut args: .
         }
     }
 
-    let fd = open(path, oflag, args.as_va_list());
+    let fd = open(path, oflag, args);
     if fd >= 0 {
         FILES.put(Box::new(PosixVFS::new(fd))).0
     } else {
