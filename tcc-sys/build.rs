@@ -64,13 +64,11 @@ const_assert!(LINK.len() <= 1);
 fn generate_bindings() -> Result<()> {
     let bindings = bindgen::Builder::default()
         .header("tinycc/libtcc.h")
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .use_core()
         .generate()?;
     let out_path = PathBuf::from(env::var("OUT_DIR")?);
     bindings.write_to_file(out_path.join("bindings.rs"))?;
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    bindings.write_to_file(manifest_dir.join("bindings.rs"))?;
     Ok(())
 }
 
@@ -155,14 +153,6 @@ fn build_static_library() -> Result<()> {
         cc.define(linkage.into(), None);
     }
 
-    if cfg!(feature = "vfs") {
-        cc.define("CONFIG_VFS", None);
-        cc.define("open", "vfs_open");
-        cc.define("read", "vfs_read");
-        cc.define("lseek", "vfs_lseek");
-        cc.define("close", "vfs_close");
-    }
-
     if cfg!(target_env = "gnu") {
         cc.define("LIBTCCAPI", r#"__attribute__((__visibility__("default")))"#);
     }
@@ -175,45 +165,8 @@ fn link_dynamic_library() -> Result<()> {
     todo!()
 }
 
-#[cfg(feature = "embed-headers")]
-fn generate_include_dir() -> Result<()> {
-    use eyre::eyre;
-    use fs_extra::dir::CopyOptions;
-
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
-
-    let dir_copy_opt = CopyOptions::new()
-        .overwrite(true)
-        .skip_exist(true)
-        .copy_inside(true)
-        .content_only(true);
-
-    let include_dir = out_dir.join("include");
-    let _ = fs::remove_dir_all(&include_dir);
-
-    fs_extra::dir::copy(
-        &manifest_dir.join("tinycc").join("include"),
-        &include_dir.join("base"),
-        &dir_copy_opt,
-    )
-    .map_err(|e| eyre!(e))?;
-
-    if cfg!(feature = "embed-headers-win32") || cfg!(target_os = "windows") {
-        fs_extra::dir::copy(
-            &manifest_dir.join("tinycc").join("win32").join("include"),
-            &include_dir.join("win32"),
-            &dir_copy_opt,
-        )
-        .map_err(|e| eyre!(e))?;
-    }
-
-    Ok(())
-}
-
 fn main() -> Result<()> {
     rerun_if_changed!("tinycc");
-    rerun_if_changed!("config.h");
     rerun_if_changed!("build.rs");
     generate_bindings()?;
 
@@ -221,11 +174,6 @@ fn main() -> Result<()> {
         build_static_library()?;
     } else {
         link_dynamic_library()?;
-    }
-
-    #[cfg(feature = "embed-headers")]
-    {
-        generate_include_dir()?;
     }
 
     Ok(())

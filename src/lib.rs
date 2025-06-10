@@ -18,20 +18,16 @@
 //!     .as_bytes(),
 //! )
 //! .unwrap();
-//! let mut g = Guard::new().unwrap();
-//! let mut ctx = Context::new(&mut g).unwrap();
+//! let mut ctx = Context::new().unwrap();
 //! assert!(ctx.compile_string(&p).is_ok());
 //! ```
 
-#[cfg(not(feature = "std"))] extern crate alloc;
-
-#[cfg(feature = "std")] extern crate std as alloc;
+extern crate alloc;
 
 use alloc::{boxed::Box, ffi::CString, string::ToString};
-use core::ffi::{c_char, c_int, c_void, CStr};
+use core::ffi::{CStr, c_char, c_int, c_void};
 #[cfg(feature = "std")] use std::path::Path;
 
-#[cfg(not(feature = "std"))] use spin::Mutex;
 use tcc_sys::*;
 #[cfg(not(feature = "std"))] use unix_path::Path;
 
@@ -192,8 +188,10 @@ impl<'err> Context<'err> {
     /// # Safety
     /// Symbol need satisfy ABI requirement.
     pub unsafe fn add_symbol(&mut self, sym: &CStr, val: *const c_void) {
-        let ret = tcc_add_symbol(self.inner, sym.as_ptr(), val);
-        assert_eq!(ret, 0);
+        unsafe {
+            let ret = tcc_add_symbol(self.inner, sym.as_ptr(), val);
+            assert_eq!(ret, 0);
+        }
     }
 
     /// output an executable, library or object file.
@@ -236,11 +234,7 @@ impl<'err> Drop for Context<'err> {
 }
 
 fn map_c_ret(code: c_int) -> Result<(), ()> {
-    if code == 0 {
-        Ok(())
-    } else {
-        Err(())
-    }
+    if code == 0 { Ok(()) } else { Err(()) }
 }
 
 /// Relocated compilation context
@@ -255,11 +249,9 @@ impl<'a, 'err> RelocatedCtx<'a, 'err> {
     /// Returned addr can not outlive RelocatedCtx itself. It's caller's
     /// responsibility to take care of validity of addr.
     pub unsafe fn get_symbol(&mut self, sym: &CStr) -> Option<*mut c_void> {
-        let addr = tcc_get_symbol(self.inner.inner, sym.as_ptr());
-        if addr.is_null() {
-            None
-        } else {
-            Some(addr)
+        unsafe {
+            let addr = tcc_get_symbol(self.inner.inner, sym.as_ptr());
+            if addr.is_null() { None } else { Some(addr) }
         }
     }
 }

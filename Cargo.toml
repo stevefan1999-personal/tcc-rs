@@ -5,14 +5,14 @@ members = [
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = [
     "Steve Fan <29133953+stevefan1999-personal@users.noreply.github.com>",
     "Hao Sun <sunhao.th@gmail.com>"
 ]
 
 [workspace.dependencies]
-eyre = "0.6.8"
+eyre = "0.6.12"
 
 [package]
 name = "tcc"
@@ -21,34 +21,10 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-spin = "0.9.8"
-tcc-sys = { version = "0.1.0", path = "tcc-sys" }
-typed-arena = { version = "2.0.2", default-features = false }
+tcc-sys = { version = "0.1.0", path = "tcc-sys", default-features = false }
 unix_path = { version = "1.0.1", default-features = false, features = ["alloc"] }
-vc-ltl = "5.0.8"
 
 [features]
-default = ["std"]
-std = ["spin/std", "typed-arena/std"]
-
-[profile.release]
-incremental = true
-lto = "thin"
-strip = "debuginfo"
-
-[profile.min-size-release]
-inherits = "release"
-codegen-units = 1
-lto = "fat"
-opt-level = "s"
-
-[profile.release-strip]
-inherits = "release"
-strip = "symbols"
-
-[profile.min-size-release-strip]
-inherits = "min-size-release"
-strip = "symbols"
-
-[dev-dependencies]
-anyhow = "1.0.79"
+default = ["std", "vendored"]
+std = ["tcc-sys/std"]
+vendored = ["tcc-sys/vendored"]

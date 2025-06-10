@@ -155,8 +155,7 @@ fn run_func() {
     assert!(ctx.compile_string(&p).is_ok());
     let mut relocated = ctx.relocate().unwrap();
 
-    let add: fn(c_int, c_int) -> c_int =
-        unsafe { transmute(relocated.get_symbol(&sym).unwrap()) };
+    let add: fn(c_int, c_int) -> c_int = unsafe { transmute(relocated.get_symbol(&sym).unwrap()) };
     assert_eq!(add(1, 1), 2);
 }
 
