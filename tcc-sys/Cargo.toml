@@ -27,7 +27,7 @@ strum = { version = "0.25", features = ["derive"] }
 crate-type = ["lib", "staticlib"]
 
 [features]
-default = ["vendored", "std", "vfs", "embed-headers", "embed-libraries", "embed-headers-win32"]
+default = ["vendored", "std", "vfs", "embed-headers", "embed-libraries"]
 vendored = []
 arch-i386 = []
 arch-arm32 = []

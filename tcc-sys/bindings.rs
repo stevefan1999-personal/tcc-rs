@@ -5,14 +5,20 @@ pub const TCC_OUTPUT_EXE: u32 = 2;
 pub const TCC_OUTPUT_DLL: u32 = 4;
 pub const TCC_OUTPUT_OBJ: u32 = 3;
 pub const TCC_OUTPUT_PREPROCESS: u32 = 5;
+pub type TCCReallocFunc = ::core::option::Option<
+    unsafe extern "C" fn(
+        ptr: *mut ::core::ffi::c_void,
+        size: ::core::ffi::c_ulong,
+    ) -> *mut ::core::ffi::c_void,
+>;
+extern "C" {
+    pub fn tcc_set_realloc(my_realloc: TCCReallocFunc);
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct TCCState {
     _unused: [u8; 0],
 }
-pub type TCCErrorFunc = ::core::option::Option<
-    unsafe extern "C" fn(opaque: *mut ::core::ffi::c_void, msg: *const ::core::ffi::c_char),
->;
 extern "C" {
     pub fn tcc_new() -> *mut TCCState;
 }
@@ -22,18 +28,15 @@ extern "C" {
 extern "C" {
     pub fn tcc_set_lib_path(s: *mut TCCState, path: *const ::core::ffi::c_char);
 }
+pub type TCCErrorFunc = ::core::option::Option<
+    unsafe extern "C" fn(opaque: *mut ::core::ffi::c_void, msg: *const ::core::ffi::c_char),
+>;
 extern "C" {
     pub fn tcc_set_error_func(
         s: *mut TCCState,
         error_opaque: *mut ::core::ffi::c_void,
         error_func: TCCErrorFunc,
     );
-}
-extern "C" {
-    pub fn tcc_get_error_func(s: *mut TCCState) -> TCCErrorFunc;
-}
-extern "C" {
-    pub fn tcc_get_error_opaque(s: *mut TCCState) -> *mut ::core::ffi::c_void;
 }
 extern "C" {
     pub fn tcc_set_options(
@@ -114,7 +117,7 @@ extern "C" {
     ) -> ::core::ffi::c_int;
 }
 extern "C" {
-    pub fn tcc_relocate(s1: *mut TCCState, ptr: *mut ::core::ffi::c_void) -> ::core::ffi::c_int;
+    pub fn tcc_relocate(s1: *mut TCCState) -> ::core::ffi::c_int;
 }
 extern "C" {
     pub fn tcc_get_symbol(
@@ -133,5 +136,30 @@ extern "C" {
                 val: *const ::core::ffi::c_void,
             ),
         >,
+    );
+}
+extern "C" {
+    pub fn _tcc_setjmp(
+        s1: *mut TCCState,
+        jmp_buf: *mut ::core::ffi::c_void,
+        top_func: *mut ::core::ffi::c_void,
+        longjmp: *mut ::core::ffi::c_void,
+    ) -> *mut ::core::ffi::c_void;
+}
+pub type TCCBtFunc = ::core::option::Option<
+    unsafe extern "C" fn(
+        udata: *mut ::core::ffi::c_void,
+        pc: *mut ::core::ffi::c_void,
+        file: *const ::core::ffi::c_char,
+        line: ::core::ffi::c_int,
+        func: *const ::core::ffi::c_char,
+        msg: *const ::core::ffi::c_char,
+    ) -> ::core::ffi::c_int,
+>;
+extern "C" {
+    pub fn tcc_set_backtrace_func(
+        s1: *mut TCCState,
+        userdata: *mut ::core::ffi::c_void,
+        arg1: TCCBtFunc,
     );
 }

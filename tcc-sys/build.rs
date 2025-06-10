@@ -163,6 +163,10 @@ fn build_static_library() -> Result<()> {
         cc.define("close", "vfs_close");
     }
 
+    if cfg!(target_env = "gnu") {
+        cc.define("LIBTCCAPI", r#"__attribute__((__visibility__("default")))"#);
+    }
+
     cc.try_compile("libtcc")?;
     Ok(())
 }

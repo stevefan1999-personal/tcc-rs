@@ -22,8 +22,13 @@ fn main() {
         ctx.add_sys_include_path("/usr/include/x86_64-linux-gnu")
             .add_library_path("/usr/lib/x86_64-linux-gnu")
             .add_sys_include_path("/vfs/headers/base")
-            .add_sys_include_path("/vfs/headers/win32")
             .add_library_path("/vfs/libraries");
+
+        if cfg!(target_family = "windows") {
+            ctx
+                .add_sys_include_path("/vfs/headers/win32")
+                .add_library_path("/vfs/libraries");
+        }
 
         let compile_ret = ctx
             .set_output_type(OutputType::Memory)
