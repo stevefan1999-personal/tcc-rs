@@ -27,124 +27,13 @@
 
 #[cfg(feature = "std")] extern crate std as alloc;
 
-use alloc::{boxed::Box, ffi::CString, rc::Rc, string::ToString, vec::Vec};
-use core::{
-    ffi::{c_char, c_int, c_void, CStr},
-    mem::ManuallyDrop,
-    ptr::null_mut,
-};
+use alloc::{boxed::Box, ffi::CString, string::ToString};
+use core::ffi::{c_char, c_int, c_void, CStr};
 #[cfg(feature = "std")] use std::path::Path;
-#[cfg(feature = "std")] use std::sync::Mutex;
 
 #[cfg(not(feature = "std"))] use spin::Mutex;
 use tcc_sys::*;
-use typed_arena::Arena;
 #[cfg(not(feature = "std"))] use unix_path::Path;
-
-static LOCK: Mutex<()> = Mutex::new(());
-
-pub struct ContextGuard<'err, T> {
-    #[allow(unused)]
-    inner: ManuallyDrop<Rc<Scoped<'err>>>,
-    data:  ManuallyDrop<T>,
-}
-
-impl<'err, T> Drop for ContextGuard<'err, T> {
-    fn drop(&mut self) {
-        unsafe {
-            ManuallyDrop::drop(&mut self.data);
-            ManuallyDrop::drop(&mut self.inner);
-        }
-    }
-}
-
-impl<'err, T> ContextGuard<'err, T> {
-    pub fn get(&self) -> &T {
-        &self.data
-    }
-}
-
-pub struct Scoped<'err>(Arena<Context<'err>>);
-
-impl<'err> Default for Scoped<'err> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'err> Scoped<'err> {
-    pub fn new() -> Self {
-        Scoped(Arena::new())
-    }
-
-    pub fn spawn(&self) -> Result<&mut Context<'err>, ()> {
-        if let Ok(context) = Context::new() {
-            Ok(self.0.alloc(context))
-        } else {
-            Err(())
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-pub fn try_scoped<'err, F, T>(func: F) -> Result<ContextGuard<'err, T>, &'static str>
-where
-    F: FnOnce(Rc<Scoped>) -> T,
-{
-    match LOCK.try_lock() {
-        Ok(_) => {
-            let scoped = Rc::new(Scoped::new());
-            Ok(ContextGuard {
-                inner: ManuallyDrop::new(scoped.clone()),
-                data:  ManuallyDrop::new(func(scoped)),
-            })
-        }
-        Err(_) => Err("lock failed"),
-    }
-}
-
-#[cfg(not(feature = "std"))]
-pub fn try_scoped<'err, F, T>(func: F) -> Result<ContextGuard<'err, T>, &'static str>
-where
-    F: FnOnce(Rc<Scoped>) -> T,
-{
-    match LOCK.try_lock() {
-        Some(_) => {
-            let scoped = Rc::new(Scoped::new());
-            Ok(ContextGuard {
-                inner: ManuallyDrop::new(scoped.clone()),
-                data:  ManuallyDrop::new(func(scoped)),
-            })
-        }
-        None => Err("lock failed"),
-    }
-}
-
-#[cfg(feature = "std")]
-pub fn scoped<'err, F, T>(func: F) -> Result<ContextGuard<'err, T>, &'static str>
-where
-    F: FnOnce(Rc<Scoped>) -> T,
-{
-    let _lock = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let scoped = Rc::new(Scoped::new());
-    Ok(ContextGuard {
-        inner: ManuallyDrop::new(scoped.clone()),
-        data:  ManuallyDrop::new(func(scoped)),
-    })
-}
-
-#[cfg(not(feature = "std"))]
-pub fn scoped<'err, F, T>(func: F) -> Result<ContextGuard<'err, T>, &'static str>
-where
-    F: FnOnce(Rc<Scoped>) -> T,
-{
-    let _lock = LOCK.lock();
-    let scoped = Rc::new(Scoped::new());
-    Ok(ContextGuard {
-        inner: ManuallyDrop::new(scoped.clone()),
-        data:  ManuallyDrop::new(func(scoped)),
-    })
-}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
@@ -317,24 +206,12 @@ impl<'err> Context<'err> {
 
     /// do all relocations (needed before get symbol)
     pub fn relocate<'a>(&'a mut self) -> Result<RelocatedCtx<'a, 'err>, ()> {
-        // pass null ptr to get required length
-        let len = unsafe { tcc_relocate(self.inner) };
-        if len == -1 {
-            return Err(());
-        };
-        // let mut bin = Vec::with_capacity(len as usize);
         let ret = unsafe { tcc_relocate(self.inner) };
         if ret != 0 {
             return Err(());
         }
-        unsafe {
-            // bin.set_len(len as usize);
-        }
 
-        Ok(RelocatedCtx {
-            inner: self,
-            // _bin:  bin,
-        })
+        Ok(RelocatedCtx { inner: self })
     }
 }
 
@@ -369,7 +246,6 @@ fn map_c_ret(code: c_int) -> Result<(), ()> {
 /// Relocated compilation context
 pub struct RelocatedCtx<'a, 'err> {
     inner: &'a mut Context<'err>,
-    // _bin:  Vec<u8>,
 }
 
 impl<'a, 'err> RelocatedCtx<'a, 'err> {
